@@ -10,7 +10,7 @@ export default function SellerOrders() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const fetch = async () => {
+  const fetchOrders = async () => {
     const { data } = await supabase
       .from('orders')
       .select('*, products(title, images), profiles!buyer_id(full_name, whatsapp)')
@@ -20,12 +20,21 @@ export default function SellerOrders() {
     setLoading(false)
   }
 
-  useEffect(() => { fetch() }, [user.id])
+  useEffect(() => { fetchOrders() }, [user.id])
 
-  const updateStatus = async (id, status) => {
+  const updateStatus = async (id, status, productId) => {
     await supabase.from('orders').update({ status }).eq('id', id)
-    toast.success(`Order marked as ${status}`)
-    fetch()
+
+    if (status === 'delivered') {
+      await supabase.from('products').update({ status: 'paused' }).eq('id', productId)
+      toast.success('Order delivered! Listing marked as sold automatically.')
+    } else if (status === 'cancelled') {
+      await supabase.from('products').update({ status: 'active' }).eq('id', productId)
+      toast.success('Order cancelled. Listing is active again.')
+    } else {
+      toast.success(`Order marked as ${status}`)
+    }
+    fetchOrders()
   }
 
   if (loading) return <div className="text-center py-12 text-gray-400">Loading orders...</div>
@@ -58,12 +67,17 @@ export default function SellerOrders() {
                       </p>
                       {order.address && <p className="text-xs text-gray-400 mt-0.5">📍 {order.address}</p>}
                     </div>
-                    <span className="text-lg font-bold text-primary-700 shrink-0">₹{order.total_price?.toLocaleString()}</span>
+                    <div className="text-right shrink-0">
+                      <span className="text-lg font-bold text-primary-700">₹{order.total_price?.toLocaleString()}</span>
+                      {order.status === 'delivered' && (
+                        <p className="text-[10px] text-green-600 font-semibold mt-0.5">✅ Listing auto-paused</p>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3 mt-3">
                     {order.profiles?.whatsapp && (
-                      <a
+
                         href={`https://wa.me/${order.profiles.whatsapp.replace(/\D/g,'')}?text=${encodeURIComponent('Hi! I got your order on CampusMart. Let\'s arrange pickup.')}`}
                         target="_blank"
                         rel="noreferrer"
@@ -74,7 +88,7 @@ export default function SellerOrders() {
                     )}
                     <select
                       value={order.status}
-                      onChange={e => updateStatus(order.id, e.target.value)}
+                      onChange={e => updateStatus(order.id, e.target.value, order.product_id)}
                       className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-400"
                     >
                       {STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
